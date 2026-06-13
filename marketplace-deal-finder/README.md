@@ -4,4 +4,4 @@ and works around an anti-bot challenge, discovers an undocumented data schema em
 and is engineered for resilience and responsible request behavior (caching, pacing,
 pagination, sort rotation). A personal/demo project, intentionally kept to light use.
 
-→ API reverse-engineering · HTTP internals · debugging · resilience engineering
+
