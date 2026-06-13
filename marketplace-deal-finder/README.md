@@ -24,10 +24,89 @@ platform?
 
 
 
+
+
+# Code highlights
+
+A few pieces that capture the engineering decisions. (This is a personal/demo
+project on an undocumented API — the snippets illustrate the approach rather than
+serving as a runnable tool.)
+
+Turning an anti-bot HTML challenge into clean JSON
+
+The first version returned HTTP 200 but failed to parse as JSON — the server was
+answering with an anti-bot HTML page. Establishing a real session and sending
+browser-like headers was what made the API return JSON instead.
+
+pythondef new_session(domain):
+    base = f"https://www.example-marketplace.{domain}"
+    sess = requests.Session()
+    sess.headers.update({
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36"),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": base + "/",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    sess.get(base + "/", timeout=20)   # warm up: collect cookies, incl. anti-bot token
+    return sess, base
+
+Parsing and normalizing an undocumented field
+
+The discount field wasn't documented. Once inspection revealed its shape
+(an enabled flag plus tiered discounts as string fractions), I normalized it
+to a single "max %" per seller, defensively handling missing/odd values.
+
+pythondef max_discount(bundle):
+    """Return (enabled, max_percentage, tiers) from a seller's discount object."""
+    if not isinstance(bundle, dict):
+        return (False, None, [])
+    enabled = bool(bundle.get("enabled"))
+    tiers, best = [], 0.0
+    for d in bundle.get("discounts", []):
+        try:
+            frac = float(d.get("fraction", 0))   # e.g. "0.05" -> 0.05
+        except (TypeError, ValueError):
+            frac = 0.0
+        tiers.append(f"{d.get('minimal_item_count')}+ items: {round(frac*100)}%")
+        best = max(best, frac)
+    return (enabled, best * 100, tiers)
+
+Persistent cache: never query the same seller twice
+
+The discount is a seller-level attribute, so once a seller is checked the result is
+stored and reused. Across runs, request volume drops while coverage grows — and
+already-rejected sellers are skipped silently.
+
+pythondef load_cache(path):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+# In the main loop:
+record = cache.get(str(seller_id))
+if record is None:
+    to_check.append(seller_id)          # new seller -> query the API
+elif record["valid"]:
+    results.append(record)              # already known good -> reuse, no request
+else:
+    skipped += 1                        # already checked, not a match -> skip silentlyy
+
+
+
+
  ## **Approach**
 
 The interesting part of this project is the sequence of obstacles and the decisions
 each one forced. I've kept them in the order they actually happened.
+
+
 
 
 ## **1. Finding the right data source**
